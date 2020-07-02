@@ -4,7 +4,6 @@ namespace Clue\Tests\React\Buzz;
 
 use Clue\React\Block;
 use Clue\React\Buzz\Browser;
-use PHPUnit\Framework\TestCase;
 use Psr\Http\Message\RequestInterface;
 use React\Promise\Promise;
 use RingCentral\Psr7\Uri;
@@ -15,7 +14,10 @@ class BrowserTest extends TestCase
     private $sender;
     private $browser;
 
-    public function setUp()
+    /**
+     * @before
+     */
+    public function setUpBrowser()
     {
         $this->loop = $this->getMockBuilder('React\EventLoop\LoopInterface')->getMock();
         $this->sender = $this->getMockBuilder('Clue\React\Buzz\Io\Transaction')->disableOriginalConstructor()->getMock();
@@ -92,6 +94,32 @@ class BrowserTest extends TestCase
         $this->browser->delete('http://example.com/');
     }
 
+    public function testRequestOptionsSendsPutRequestWithStreamingExplicitlyDisabled()
+    {
+        $this->sender->expects($this->once())->method('withOptions')->with(array('streaming' => false))->willReturnSelf();
+
+        $that = $this;
+        $this->sender->expects($this->once())->method('send')->with($this->callback(function (RequestInterface $request) use ($that) {
+            $that->assertEquals('OPTIONS', $request->getMethod());
+            return true;
+        }))->willReturn(new Promise(function () { }));
+
+        $this->browser->request('OPTIONS', 'http://example.com/');
+    }
+
+    public function testRequestStreamingGetSendsGetRequestWithStreamingExplicitlyEnabled()
+    {
+        $this->sender->expects($this->once())->method('withOptions')->with(array('streaming' => true))->willReturnSelf();
+
+        $that = $this;
+        $this->sender->expects($this->once())->method('send')->with($this->callback(function (RequestInterface $request) use ($that) {
+            $that->assertEquals('GET', $request->getMethod());
+            return true;
+        }))->willReturn(new Promise(function () { }));
+
+        $this->browser->requestStreaming('GET', 'http://example.com/');
+    }
+
     public function testSubmitSendsPostRequest()
     {
         $that = $this;
@@ -103,6 +131,76 @@ class BrowserTest extends TestCase
         }))->willReturn(new Promise(function () { }));
 
         $this->browser->submit('http://example.com/', array());
+    }
+
+    public function testWithTimeoutTrueSetsDefaultTimeoutOption()
+    {
+        $this->sender->expects($this->once())->method('withOptions')->with(array('timeout' => null))->willReturnSelf();
+
+        $this->browser->withTimeout(true);
+    }
+
+    public function testWithTimeoutFalseSetsNegativeTimeoutOption()
+    {
+        $this->sender->expects($this->once())->method('withOptions')->with(array('timeout' => -1))->willReturnSelf();
+
+        $this->browser->withTimeout(false);
+    }
+
+    public function testWithTimeout10SetsTimeoutOption()
+    {
+        $this->sender->expects($this->once())->method('withOptions')->with(array('timeout' => 10))->willReturnSelf();
+
+        $this->browser->withTimeout(10);
+    }
+
+    public function testWithTimeoutNegativeSetsZeroTimeoutOption()
+    {
+        $this->sender->expects($this->once())->method('withOptions')->with(array('timeout' => null))->willReturnSelf();
+
+        $this->browser->withTimeout(-10);
+    }
+
+    public function testWithFollowRedirectsTrueSetsSenderOption()
+    {
+        $this->sender->expects($this->once())->method('withOptions')->with(array('followRedirects' => true, 'maxRedirects' => null))->willReturnSelf();
+
+        $this->browser->withFollowRedirects(true);
+    }
+
+    public function testWithFollowRedirectsFalseSetsSenderOption()
+    {
+        $this->sender->expects($this->once())->method('withOptions')->with(array('followRedirects' => false, 'maxRedirects' => null))->willReturnSelf();
+
+        $this->browser->withFollowRedirects(false);
+    }
+
+    public function testWithFollowRedirectsTenSetsSenderOption()
+    {
+        $this->sender->expects($this->once())->method('withOptions')->with(array('followRedirects' => true, 'maxRedirects' => 10))->willReturnSelf();
+
+        $this->browser->withFollowRedirects(10);
+    }
+
+    public function testWithFollowRedirectsZeroSetsSenderOption()
+    {
+        $this->sender->expects($this->once())->method('withOptions')->with(array('followRedirects' => true, 'maxRedirects' => 0))->willReturnSelf();
+
+        $this->browser->withFollowRedirects(0);
+    }
+
+    public function testWithRejectErrorResponseTrueSetsSenderOption()
+    {
+        $this->sender->expects($this->once())->method('withOptions')->with(array('obeySuccessCode' => true))->willReturnSelf();
+
+        $this->browser->withRejectErrorResponse(true);
+    }
+
+    public function testWithRejectErrorResponseFalseSetsSenderOption()
+    {
+        $this->sender->expects($this->once())->method('withOptions')->with(array('obeySuccessCode' => false))->willReturnSelf();
+
+        $this->browser->withRejectErrorResponse(false);
     }
 
     public function testWithBase()
@@ -226,7 +324,6 @@ class BrowserTest extends TestCase
     /**
      * @param string $other
      * @dataProvider provideOtherBaseUris
-     * @expectedException UnexpectedValueException
      */
     public function testRequestingUrlsNotBelowBaseWillRejectBeforeSending($other)
     {
@@ -234,14 +331,13 @@ class BrowserTest extends TestCase
 
         $this->sender->expects($this->never())->method('send');
 
+        $this->setExpectedException('UnexpectedValueException');
         Block\await($browser->get($other), $this->loop);
     }
 
-    /**
-     * @expectedException InvalidArgumentException
-     */
     public function testWithBaseUriNotAbsoluteFails()
     {
+        $this->setExpectedException('InvalidArgumentException');
         $this->browser->withBase('hello');
     }
 
@@ -271,11 +367,9 @@ class BrowserTest extends TestCase
         $this->browser->submit('http://example.com/', array());
     }
 
-    /**
-     * @expectedException InvalidArgumentException
-     */
     public function testWithProtocolVersionInvalidThrows()
     {
+        $this->setExpectedException('InvalidArgumentException');
         $this->browser->withProtocolVersion('1.2');
     }
 
@@ -290,20 +384,5 @@ class BrowserTest extends TestCase
 
         $promise = $this->browser->get('http://example.com/');
         $promise->cancel();
-    }
-
-    protected function expectCallableOnce()
-    {
-        $mock = $this->createCallableMock();
-        $mock
-            ->expects($this->once())
-            ->method('__invoke');
-
-        return $mock;
-    }
-
-    protected function createCallableMock()
-    {
-        return $this->getMockBuilder('stdClass')->setMethods(array('__invoke'))->getMock();
     }
 }
